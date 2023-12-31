@@ -9,7 +9,6 @@ use maelstrom::protocol::Message;
 use maelstrom::{done, Node, Result, Runtime};
 use std::sync::{Arc, Mutex};
 use rand::Rng;
-use rand::random;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -39,18 +38,21 @@ impl Node for Handler {
                 return runtime.reply(req, res_body).await;
             },
             Ok(Request::Generate {}) => {
-                loop {
-                    let id = rand::thread_rng().gen_range(0..1_000_000);
+                let (r0, h0) = (runtime.clone(), self.clone());
+                tokio::spawn(async move {
+                    loop {
+                        let id = rand::thread_rng().gen_range(0..u64::MAX);
 
-                    if !self.inner.lock().unwrap().contains(&id) { // ensures that the ids are unique
-                        self.inner.lock().unwrap().insert(id);
+                        if !h0.inner.lock().unwrap().contains(&id) { // ensures that the ids are unique
+                            h0.inner.lock().unwrap().insert(id);
 
-                        let mut res_body = req.body.clone();
-                        res_body.extra.insert("id".into(), json!(id));
-                        res_body = res_body.with_type("generate_ok");
-                        return runtime.reply(req, res_body).await;
+                            let mut res_body = req.body.clone().with_type("generate_ok");
+                            res_body.extra.insert("id".into(), json!(id));
+                            return r0.reply(req, res_body).await;
+                        }
                     }
-                }
+                });
+                Ok(())
             }
             _ => done(runtime,req)
 
